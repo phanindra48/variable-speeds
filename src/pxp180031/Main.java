@@ -72,7 +72,7 @@ class Node implements Runnable {
     // System.out.println("Running thread " + process.getName());
     try {
       while (!terminate) {
-        while (hold) continue;
+        while (!terminate && hold) continue;
         // System.out.printf("Round %s Thread %s \n", round, uid);
         if (isValidRound()) {
           neighbor.sendMessage(minUID, round);
@@ -132,12 +132,12 @@ class MasterNode implements Runnable {
    * Will be called once all threads are done
    */
   private void updateRoundProgress() {
-    System.out.println("All threads done in round " + round);
-    System.out.println("-----------------------------");
-    roundInProgress = false;
+    if (round % 100000 == 0) System.out.println("All threads done in round " + round);
+    // System.out.println("-----------------------------");
     for (Node node: nodes) {
       node.setHold(true);
     }
+    roundInProgress = false;
   }
 
   /**
@@ -171,9 +171,6 @@ class MasterNode implements Runnable {
     // TODO: Can this be moved to start?
     CyclicBarrier masterBarrier = new CyclicBarrier(1, () -> incrementRound());
     CyclicBarrier nodesBarrier = new CyclicBarrier(n, () -> updateRoundProgress());
-
-    // CountDownLatch masterLatch = new CountDownLatch(1);
-    // CountDownLatch latch = new CountDownLatch(n);
 
     // Create all nodes
     nodes = new Node[n];
@@ -237,13 +234,13 @@ public class Main {
 	  int n = 5;
 
 	  // int[] uIds = new int[] {4, 7, 2, 5, 6};
-	  int[] uIds = new int[] {10, 7, 5, 6, 11};
+	  int[] uIds = new int[] {18, 17, 14, 15, 32};
 	  // int[] uIds = new int[] {7, 11, 9, 10, 12};
 	  // int[] uIds = new int[] {2, 7, 5, 6, 4};
 	  // int[] uIds = new int[] {2, 7, 5, 6, 4};
 	  // for (int i = 0; i < n; i++) uIds[i] = i + 1;
 
-    // uIds = randomArray(3, 15, n);
+    // uIds = randomArray(20, 30, n);
 
     for (int num: uIds) System.out.print(num + " ");
     System.out.println();
