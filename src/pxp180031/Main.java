@@ -1,7 +1,13 @@
+/**
+ * TEAM:
+ * Phanindra Pydisetty PXP180031
+ * Divya Gummadapu DXG170018
+ */
 package pxp180031;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.PrintStream;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -17,6 +23,9 @@ class Node implements Runnable {
   volatile int minUID;
   volatile int lastRound;
 
+  int receivedUID;
+  int receivedRound;
+
   CyclicBarrier barrier;
   MasterNode master;
 
@@ -24,6 +33,7 @@ class Node implements Runnable {
     this.name = id + "";
     this.uid = id;
     this.minUID = id;
+    this.receivedUID = id;
     this.round = 1;
 
     this.barrier = barrier;
@@ -55,10 +65,9 @@ class Node implements Runnable {
       this.master.leaderElected();
       return;
     }
-    int newMin = Math.min(minUID, incomingUID);
-    if (incomingUID < minUID) this.lastRound = incomingRound;
 
-    minUID = newMin;
+    receivedUID = incomingUID;
+    receivedRound = incomingRound;
   }
 
   /**
@@ -85,6 +94,12 @@ class Node implements Runnable {
     try {
       while (!terminate) {
         while (!terminate && hold) continue;
+
+        // update min
+        int newMin = Math.min(minUID, receivedUID);
+        if (receivedUID < minUID) this.lastRound = receivedRound;
+
+        minUID = newMin;
 
         if (isValidRound()) {
           neighbor.sendMessage(minUID, round);
@@ -241,6 +256,7 @@ public class Main {
       uIds[i] = in.nextInt();
     }
 
+    System.out.println("Process UIDs:");
     for (int num: uIds) System.out.print(num + " ");
     System.out.println();
 

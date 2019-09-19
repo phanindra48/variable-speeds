@@ -1,0 +1,18 @@
+Process UIDs:
+14 17 19 21 16 
+Starting thread for master
+Running master thread
+Starting thread for 14
+Starting thread for 17
+Starting thread for 19
+Starting thread for 21
+Starting thread for 16
+Leader 14 elected in round 81920! 
+-----Leaders-----
+UID 14 elected in round 81920! 
+UID 17 not a leader
+UID 19 not a leader
+UID 21 not a leader
+UID 16 not a leader
+
+Process finished with exit code 0
