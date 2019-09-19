@@ -1,9 +1,8 @@
 package pxp180031;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Random;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 
@@ -19,15 +18,16 @@ class Node implements Runnable {
   volatile int lastRound;
 
   CyclicBarrier barrier;
-  CyclicBarrier masterBarrier;
+  MasterNode master;
 
-  public Node(int id, CyclicBarrier masterBarrier, CyclicBarrier barrier) {
+  public Node(int id, MasterNode master, CyclicBarrier barrier) {
     this.name = id + "";
     this.uid = id;
     this.minUID = id;
     this.round = 1;
+
     this.barrier = barrier;
-    this.masterBarrier = masterBarrier;
+    this.master = master;
   }
 
   public void setNeighbor(Node neighbor) {
@@ -42,9 +42,17 @@ class Node implements Runnable {
 
   public void setRound(int round) { this.round = round; }
 
+  /**
+   * Pass message to neighboring node
+   * Token (UID, round)
+   * @param incomingUID
+   * @param incomingRound
+   */
   public void sendMessage(int incomingUID, int incomingRound) {
     if (this.uid == incomingUID) {
       System.out.printf("Leader %s elected in round %s! \n", uid, round);
+      // Inform master thread about election
+      this.master.leaderElected();
       return;
     }
     int newMin = Math.min(minUID, incomingUID);
@@ -53,6 +61,9 @@ class Node implements Runnable {
     minUID = newMin;
   }
 
+  /**
+   * Helper function to print leader information
+   */
   public void checkLeader() {
     if (this.uid == minUID) {
       System.out.printf("UID %s elected in round %s! \n", uid, round);
@@ -61,25 +72,25 @@ class Node implements Runnable {
     System.out.printf("UID %s not a leader\n", uid);
   }
 
-  public boolean isLeader() { return this.uid == minUID; }
-
-  public boolean isValidRound() {
+  /**
+   * Checks if the current round is valid to send the message to neighbor
+   * @return
+   */
+  private boolean isValidRound() {
     return round == lastRound + (int) Math.pow(2, minUID);
   }
 
   @Override
   public void run() {
-    // System.out.println("Running thread " + process.getName());
     try {
       while (!terminate) {
         while (!terminate && hold) continue;
-        // System.out.printf("Round %s Thread %s \n", round, uid);
+
         if (isValidRound()) {
           neighbor.sendMessage(minUID, round);
         }
 
         hold = true;
-        // System.out.printf("Done with thread %s in Round %s\n", process.getName(), round);
         barrier.await();
       }
 
@@ -89,7 +100,7 @@ class Node implements Runnable {
   }
 
   public void start() {
-    System.out.println("Starting " + name + " thread");
+    System.out.println("Starting thread for " + name);
     if (process == null) {
       process = new Thread(this, name);
       process.start();
@@ -100,82 +111,82 @@ class Node implements Runnable {
 class MasterNode implements Runnable {
   Thread process;
   String name;
+  // Number of threads to create
   int n;
-  int maxRounds;
+  volatile boolean isLeaderElected = false;
   volatile boolean terminate = false;
   volatile int round = 0;
   Node[] nodes;
   volatile boolean roundInProgress = false;
   int[] uIds;
-  private static final Object LOCK = new Object();
 
   public MasterNode(String name, int n, int[] uIds) {
     this.name = name;
     this.uIds = uIds;
     this.n = n;
-    this.maxRounds = maxRounds();
-  }
-
-  /**
-   * Max rounds in which a leader has to be elected!
-   * @return
-   */
-  private int maxRounds() {
-    int[] temp = new int[n];
-    System.arraycopy(uIds, 0, temp, 0, n);
-    Arrays.sort(temp);
-    System.out.println(n * (int)Math.pow(2, temp[0]));
-    return n * (int)Math.pow(2, temp[0]);
   }
 
   /**
    * Will be called once all threads are done
    */
   private void updateRoundProgress() {
-    if (round % 100000 == 0) System.out.println("All threads done in round " + round);
-    // System.out.println("-----------------------------");
+    // if (round % 100000 == 0) System.out.println("All threads done in round " + round);
     for (Node node: nodes) {
       node.setHold(true);
     }
     roundInProgress = false;
+
+    if (isLeaderElected) {
+      terminate = true;
+      System.out.println("-----Leaders-----");
+      for (Node node: nodes) {
+        node.checkLeader();
+      }
+    }
   }
 
   /**
    * Will be called when master is ready to conduct a new round
    */
   private  void incrementRound() {
+    // Stop future rounds if leader is elected
+    if (isLeaderElected) return;
+
     round = round + 1;
     roundInProgress = true;
 
-    if (round > maxRounds) {
-      System.out.println("-----Leaders-----");
-      for (Node node: nodes) {
-        if (node.isLeader()) {
-          this.terminate = true;
-        }
-        node.checkLeader();
-        // Terminate all threads by sending a kill signal
-        node.setTerminate(true);
-      }
-      return;
-    }
+    // Pass round information to all threads and give go ahead signal
     for (Node node: nodes) {
       node.setRound(round);
       node.setHold(false);
     }
   }
 
+  /**
+   * Elected child node notifies master to stop further rounds
+   */
+  public void leaderElected() {
+    this.isLeaderElected = true;
+    // Terminate all threads once leader is elected
+    for (Node node: nodes) {
+      // Terminate all threads by sending a kill signal
+      node.setTerminate(true);
+    }
+  }
+
   @Override
   public void run() {
     System.out.println("Running " + process.getName() + " thread");
-    // TODO: Can this be moved to start?
+    // Barrier for master to control child nodes
     CyclicBarrier masterBarrier = new CyclicBarrier(1, () -> incrementRound());
+
+    // Barrier for child nodes to inform on completion of round 'x'
     CyclicBarrier nodesBarrier = new CyclicBarrier(n, () -> updateRoundProgress());
 
     // Create all nodes
     nodes = new Node[n];
     for (int i = 0; i < n; i++) {
-      nodes[i] = new Node(uIds[i], masterBarrier, nodesBarrier);
+      nodes[i] = new Node(uIds[i], this, nodesBarrier);
     }
 
     // Set neighbor node
@@ -191,19 +202,17 @@ class MasterNode implements Runnable {
 
     try {
       while (!terminate) {
-
+        // Hold master if round is in progress
         if (roundInProgress) continue;
-
         masterBarrier.await();
       }
-
     } catch (Exception ex) {
       ex.printStackTrace();
     }
   }
 
   public void start() {
-    System.out.println("Starting " + name + " thread");
+    System.out.println("Starting thread for " + name);
     if (process == null) {
       process = new Thread(this, name);
       process.start();
@@ -212,35 +221,25 @@ class MasterNode implements Runnable {
 }
 
 public class Main {
-
-  public static int[] randomArray(int min, int max, int n) {
-    Random rand = new Random();
-    List<Integer> list = new ArrayList<Integer>();
-    int[] randArr = new int[n];
-    int counter = 0;
-    while (counter < n) {
-      int num = min + rand.nextInt(max);
-      if (list.contains(num)) continue;
-      list.add(num);
-      counter++;
-    }
-    counter = 0;
-    for (Integer num: list) randArr[counter++] = num;
-    return randArr;
-  }
-
   public static void main(String[] args) {
-    System.out.println("Main");
-	  int n = 5;
+    File file = new File("input.dat");
+    Scanner in;
+    try {
+      in = new Scanner(file);
+    } catch (FileNotFoundException e) {
+      e.printStackTrace();
+      return;
+    }
 
-	  // int[] uIds = new int[] {4, 7, 2, 5, 6};
-	  int[] uIds = new int[] {18, 17, 14, 15, 32};
-	  // int[] uIds = new int[] {7, 11, 9, 10, 12};
-	  // int[] uIds = new int[] {2, 7, 5, 6, 4};
-	  // int[] uIds = new int[] {2, 7, 5, 6, 4};
-	  // for (int i = 0; i < n; i++) uIds[i] = i + 1;
+    int n = 0;
+    if(in.hasNext())
+      n = in.nextInt();
 
-    // uIds = randomArray(20, 30, n);
+    // int[] uIds = new int[] {17, 18, 19, 30, 25};
+    int[] uIds = new int[n];
+    for( int i = 0; i < n; i++) {
+      uIds[i] = in.nextInt();
+    }
 
     for (int num: uIds) System.out.print(num + " ");
     System.out.println();
