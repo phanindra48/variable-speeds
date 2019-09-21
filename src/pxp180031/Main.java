@@ -146,9 +146,6 @@ class MasterNode implements Runnable {
    */
   private void updateRoundProgress() {
     // if (round % 100000 == 0) System.out.println("All threads done in round " + round);
-    for (Node node: nodes) {
-      node.setHold(true);
-    }
     roundInProgress = false;
 
     if (isLeaderElected) {
